@@ -4,7 +4,7 @@ import os
 import json
 import firebase_admin
 from firebase_admin import credentials, db
-from PySide2.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QFileDialog, QTableWidget, QTableWidgetItem
+from PySide2.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QFileDialog, QTableWidget, QTableWidgetItem, QMessageBox
 from PySide2.QtGui import QColor, QPixmap
 from PySide2.QtCore import Qt, QStandardPaths
 
@@ -14,7 +14,26 @@ class QuestionBankApp(QMainWindow):
 
         self.setWindowTitle("Question Bank App")
         self.setGeometry(100, 100, 800, 600)
-
+        self.setStyleSheet('''
+            QMainWindow {
+                background-color: #2E2E2E;
+                color: #FFFFFF;
+            }
+            QTableWidget {
+                background-color: #2E2E2E;
+                color: #FFFFFF;
+                selection-background-color: #555555;
+            }
+            QPushButton {
+                background-color: #555555;
+                color: #FFFFFF;
+                border: none;
+                padding: 5px 10px;
+            }
+            QPushButton:hover {
+                background-color: #666666;
+            }
+        ''')
         self.initialize_firebase()
         
         self.initUI()
@@ -31,7 +50,20 @@ class QuestionBankApp(QMainWindow):
         self.import_button.clicked.connect(self.import_csv)
         layout.addWidget(self.import_button)
 
+        self.clear_button = QPushButton('Clear Data', self)
+        self.clear_button.setGeometry(120, 500, 100, 30)
+        self.clear_button.clicked.connect(self.clear_data)
+
+
+        layout.addWidget(self.clear_button)
+
         self.grid_widget = QTableWidget()
+        self.grid_widget.setStyleSheet('''
+        background-color: #2E2E2E;
+        color: #FFFFFF;
+        selection-background-color: #555555;
+        ''')
+        
         self.grid_widget.setColumnCount(9)  # Number of columns including the status column
         self.grid_widget.setHorizontalHeaderLabels(["ID", "Date", "Question", "Answer A", "Answer B", "Answer C", "Answer D", "Correct", "Status"])
       
@@ -50,6 +82,13 @@ class QuestionBankApp(QMainWindow):
         self.refresh_button.clicked.connect(self.refresh_status)
         layout.addWidget(self.refresh_button)
 
+        self.fetch_button = QPushButton('Fetch Latest', self)
+        self.fetch_button.setGeometry(230, 500, 100, 30)
+        self.fetch_button.clicked.connect(self.fetch_latest_data)
+        layout.addWidget(self.fetch_button)
+
+
+
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
@@ -62,13 +101,15 @@ class QuestionBankApp(QMainWindow):
         else:
             # If question_bank is loaded from JSON, display that data
             self.display_data()
-            self.refresh_status()
+            #self.refresh_status()
 
     def initialize_firebase(self):
         cred = credentials.Certificate("credentials.json")
         firebase_admin.initialize_app(cred, {
             'databaseURL': 'https://danieledu-9cd63-default-rtdb.firebaseio.com'
         })
+        self.db = db.reference()
+
 
     def import_csv(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Import CSV File", "", "CSV Files (*.csv);;All Files (*)")
@@ -116,7 +157,10 @@ class QuestionBankApp(QMainWindow):
             status_item.setForeground(QColor(Qt.yellow))
             self.grid_widget.setItem(row_idx, len(data.keys()), status_item)
 
-
+    def clear_data(self):
+            self.question_bank.clear()
+            self.display_data()
+            self.save_question_bank_to_json()
 
 
 
@@ -125,6 +169,43 @@ class QuestionBankApp(QMainWindow):
         ref.set(self.question_bank)
         print("Uploaded to Firebase")
 
+    def fetch_latest_data(self):
+        self.question_bank_headers= ["ID", "Date", "Question", "Answer A", "Answer B", "Answer C", "Answer D", "Correct", "Status"]
+        try:
+            fetched_data = self.db.child('question_bank').get()
+            if fetched_data:
+                reordered_data = {}
+                for key, values in fetched_data.items():
+                    reordered_values = [values["ID"], values["Date"], values["Question"],
+                                        values["Answer A"], values["Answer B"], values["Answer C"],
+                                        values["Answer D"], values["Correct"]]
+                    reordered_data[key] = dict(zip(self.question_bank_headers, reordered_values))
+                
+                self.question_bank.update(reordered_data)
+                self.display_data()
+                self.save_question_bank_to_json()
+
+                fetched_entries = len(fetched_data)
+                self.show_info_message(f'Successfully fetched {fetched_entries} entries.')
+            else:
+                self.show_info_message('No new entries fetched.')
+
+        except Exception as e:
+            self.show_error_message(f'Error fetching data from Firebase: {str(e)}')
+
+    def show_info_message(self, message):
+        info_box = QMessageBox()
+        info_box.setIcon(QMessageBox.Information)
+        info_box.setText(message)
+        info_box.setWindowTitle('Information')
+        info_box.exec_()
+
+    def show_error_message(self, message):
+        error_box = QMessageBox()
+        error_box.setIcon(QMessageBox.Critical)
+        error_box.setText(message)
+        error_box.setWindowTitle('Error')
+        error_box.exec_()
 
     def refresh_status(self):
         ref = db.reference('question_bank')
@@ -149,6 +230,7 @@ class QuestionBankApp(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyle('Fusion')  # Set the Fusion style
     window = QuestionBankApp()
     window.show()
     sys.exit(app.exec_())
