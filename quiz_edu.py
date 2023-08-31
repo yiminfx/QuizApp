@@ -23,6 +23,9 @@ class QuizApp(QMainWindow):
                 background-color: #2E2E2E;
                 color: #FFFFFF;
             }
+            QLabel {
+                color: #FFFFFF;
+            }
             QPushButton {
                 background-color: #555555;
                 color: #FFFFFF;
@@ -33,7 +36,7 @@ class QuizApp(QMainWindow):
                 background-color: #666666;
             }
             QRadioButton {
-                color: #FFFFFF;
+                color: #CCCCCC;
             }
         ''')
 
@@ -101,10 +104,15 @@ class QuizApp(QMainWindow):
             self.clear_layout(self.answers_radio_layout)  # Clear answer choices layout
 
             self.question_label.setText(question_data['Question'])  # Update question label
+            self.question_label.setWordWrap(True)
 
-            for idx, answer in enumerate(['Answer A', 'Answer B', 'Answer C', 'Answer D']):
+            font = self.font()
+            font.setPointSize(14)  # Change this to the desired font size
+
+            for idx, answer in enumerate(['Answer A', 'Answer B', 'Answer C', 'Answer D']):    
                 answer_radio = QRadioButton(f'{chr(65 + idx)}: {question_data[answer]}')  # Add A:, B:, C:, D: labels
-                answer_radio.toggled.connect(lambda state, a=answer: self.select_answer(a, state))
+                answer_radio.toggled.connect(lambda state, a=f'{chr(65 + idx)}': self.select_answer(a, state))
+                answer_radio.setFont(font)
                 self.answers_radio_layout.addWidget(answer_radio)  # Add answer radio button to layout
 
             self.prev_button.setEnabled(self.current_question_index > 0)  # Enable/disable previous button
@@ -130,6 +138,7 @@ class QuizApp(QMainWindow):
             self.selected_answers[self.current_question_index] = answer
 
     def submit_quiz(self):
+        print(self.selected_answers)
         score = sum(1 for selected, correct in zip(self.selected_answers, 
                                                    [self.question_bank[q]['Correct'] for q in self.selected_questions]) if selected == correct)
         self.show_score(score)
@@ -141,7 +150,15 @@ class QuizApp(QMainWindow):
             for idx, (selected, correct) in enumerate(zip(self.selected_answers, 
                                                            [self.question_bank[q]['Correct'] for q in self.selected_questions]), start=1):
                 if selected != correct:
-                    score_message += f'\nQuestion {idx}: You selected {selected}, Correct answer: {correct}'
+                    question_text = self.question_bank[self.selected_questions[idx - 1]]['Question']
+                    
+                    user_answer = ''
+                    if selected is not None:
+                        user_answer = self.question_bank[self.selected_questions[idx - 1]][f'Answer {selected}']
+                    
+                    correct_answer = self.question_bank[self.selected_questions[idx - 1]][f'Answer {correct}']
+
+                    score_message += f'\nQ{idx} {question_text}:\n\n You selected {selected} {user_answer} \t Correct answer: {correct} {correct_answer}\n'
         self.show_info_message(score_message)
         self.restart_quiz()
 
@@ -152,6 +169,17 @@ class QuizApp(QMainWindow):
         info_box.setWindowTitle('Quiz Result')
         info_box.addButton('Restart Quiz', QMessageBox.AcceptRole)
         info_box.addButton('Quit', QMessageBox.RejectRole)
+        info_box.setStyleSheet('''
+        background-color: #2E2E2E;
+        color: #FFFFFF;
+        QPushButton {
+            background-color: #555555;
+            color: #FFFFFF;
+        }
+        QPushButton:hover {
+            background-color: #666666;
+        }
+    ''')
         result = info_box.exec_()
         if result == 0:
             self.restart_quiz()
