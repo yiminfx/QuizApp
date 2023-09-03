@@ -2,13 +2,78 @@ import sys
 import os
 import json
 import random
-from PySide2.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QLabel, QRadioButton, QHBoxLayout, QMessageBox
-from PySide2.QtCore import Qt, QStandardPaths
+from PySide2.QtWidgets import QMainWindow, QApplication, QWidget, QHBoxLayout,QVBoxLayout, QLabel, QPushButton, QRadioButton, QMessageBox, QInputDialog, QComboBox
+import firebase_admin
+from firebase_admin import credentials, db
+import datetime
 
-class QuizApp(QMainWindow):
+from PySide2.QtCore import Qt, QStandardPaths
+class StartupWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.initUI()
+
+       
+        
+         # Initialize Firebase
+        cred = credentials.Certificate("credentials.json")
+        firebase_admin.initialize_app(cred, {
+            'databaseURL': 'https://danieledu-9cd63-default-rtdb.firebaseio.com'
+        })
+
+
+    def initUI(self):
+        layout = QVBoxLayout()
+        self.setWindowTitle('Select Question Bank')
+        
+        self.question_bank_label = QLabel('Select Question Bank:')
+        self.question_bank_combo = QComboBox()
+        
+        self.load_question_banks()  # Load available question banks
+        
+        layout.addWidget(self.question_bank_label)
+        layout.addWidget(self.question_bank_combo)
+        
+        self.start_button = QPushButton('Start Quiz')
+        self.start_button.clicked.connect(self.start_quiz)
+        layout.addWidget(self.start_button)
+        
+        self.setLayout(layout)
+        
+    def load_question_banks(self):
+        prefs_file_path = os.path.join(os.path.expanduser('~'), 'Documents', 'shsat_vcb_prefs.json')
+
+        if os.path.exists(prefs_file_path):
+            with open(prefs_file_path, 'r') as prefs_file:
+                prefs_data = json.load(prefs_file)
+                question_banks = list(prefs_data.keys())
+                self.question_bank_combo.addItems(question_banks)
+        else:
+            self.show_error_message('Question bank preferences file not found.')
+
+    def start_quiz(self):
+        selected_bank = self.question_bank_combo.currentText()
+        self.quiz_app = QuizApp(selected_bank)
+        self.quiz_app.show()
+        self.close()
+
+    def show_error_message(self, message):
+        error_msg = QMessageBox(self)
+        error_msg.setWindowTitle('Error')
+        error_msg.setText(message)
+        error_msg.setIcon(QMessageBox.Critical)
+        error_msg.exec_()
+
+
+class QuizApp(QMainWindow):
+    def __init__(self, selected_bank):
+        super().__init__()
+        self.username = ''
+        self.selected_bank = selected_bank
+        #self.initUI()
+
+        self.load_username()
+        self.initUI()   
         self.load_question_bank()
         self.selected_questions = random.sample(list(self.question_bank.keys()), 10)
         self.current_question_index = 0
@@ -45,6 +110,15 @@ class QuizApp(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.central_widget.setLayout(QVBoxLayout())  # Set up central widget's layout
 
+        # Load username from preferences or prompt user to create one
+        self.load_username()
+
+        # Display username label
+        self.username_label = QLabel(f"Welcome {self.username}", self)
+        self.username_label.setAlignment(Qt.AlignRight)
+        self.username_label.setStyleSheet("color: white; font-size: 16px; padding-right: 20px;")
+        self.central_widget.layout().addWidget(self.username_label)
+
         self.question_id_label = QLabel(self)
         #self.question_id_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
         self.central_widget.layout().addWidget(self.question_id_label)  # Add question ID label to central widget's layout
@@ -78,14 +152,41 @@ class QuizApp(QMainWindow):
         buttons_layout.addWidget(self.submit_button)
         self.central_widget.layout().addLayout(buttons_layout)  # Add buttons layout to central widget's layout
 
+    def upload_quiz_results(self, quiz_results):
+        ref = db.reference('test_results')
+        results_ref = ref.child(self.selected_bank).child(self.username)
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+        results_ref.child(timestamp).set(quiz_results)
+
+    def load_question_banks(self):
+        prefs_file_path = os.path.join(os.path.expanduser('~'), 'Documents', 'shsat_vcb_prefs.json')
+
+        if os.path.exists(prefs_file_path):
+            with open(prefs_file_path, 'r') as prefs_file:
+                prefs_data = json.load(prefs_file)
+                question_banks = list(prefs_data.keys())  # Convert to a list
+                if question_banks:
+                    self.question_bank_combo.addItems(question_banks)
+                    self.question_bank_combo.setCurrentIndex(0)  # Select the first question bank
+                else:
+                    self.show_error_message('No question banks found.')
+        else:
+            self.show_error_message('Question bank preferences file not found.')
+
+
     def load_question_bank(self):
-        prefs_file_path = os.path.join(QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation), 'shsat_vcb_prefs.json')
-        
-        if not os.path.exists(prefs_file_path):
-            self.fetch_data_from_firebase_and_create_prefs(prefs_file_path)
-        
-        with open(prefs_file_path, 'r') as prefs_file:
-            self.question_bank = json.load(prefs_file)
+        selected_bank = self.selected_bank
+        prefs_file_path = os.path.join(os.path.expanduser('~'), 'Documents', 'shsat_vcb_prefs.json')
+
+        if os.path.exists(prefs_file_path):
+            with open(prefs_file_path, 'r') as prefs_file:
+                prefs_data = json.load(prefs_file)
+                if selected_bank in prefs_data:
+                    self.question_bank = prefs_data[selected_bank]
+                else:
+                    self.show_error_message(f'Question bank "{selected_bank}" not found.')
+        else:
+            self.show_error_message('Question bank preferences file not found.')
 
     def fetch_data_from_firebase_and_create_prefs(self, prefs_file_path):
         # Fetch data from Firebase and populate self.question_bank
@@ -123,6 +224,27 @@ class QuizApp(QMainWindow):
         else:
             self.show_result()
 
+    def load_username(self):
+        prefs_file_path = os.path.join(os.path.expanduser('~'), 'Documents', 'shsat_quiz_prefs.json')
+
+        if os.path.exists(prefs_file_path):
+            with open(prefs_file_path, 'r') as prefs_file:
+                prefs_data = json.load(prefs_file)
+                if 'username' in prefs_data:
+                    self.username = prefs_data['username']
+                else:
+                    self.prompt_for_username()
+        else:
+            self.prompt_for_username()
+   
+    def prompt_for_username(self):
+        self.username, ok = QInputDialog.getText(self, 'Create Username', 'Please enter your username:')
+        if ok and self.username:
+            prefs_file_path = os.path.join(os.path.expanduser('~'), 'Documents', 'shsat_quiz_prefs.json')
+            with open(prefs_file_path, 'w') as prefs_file:
+                prefs_data = {'username': self.username}
+                json.dump(prefs_data, prefs_file)
+
     def next_question(self):
         if self.current_question_index < len(self.selected_questions) - 1:
             self.current_question_index += 1
@@ -141,7 +263,21 @@ class QuizApp(QMainWindow):
         print(self.selected_answers)
         score = sum(1 for selected, correct in zip(self.selected_answers, 
                                                    [self.question_bank[q]['Correct'] for q in self.selected_questions]) if selected == correct)
+      
+
+                # Upload quiz results to Firebase
+        quiz_results = {
+            'datetime': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'score': score,
+            'correct': [q_id for q_id, selected, correct in zip(self.selected_questions, self.selected_answers,
+                                                                [self.question_bank[q]['Correct'] for q in self.selected_questions]) if selected == correct],
+            'incorrect': [q_id for q_id, selected, correct in zip(self.selected_questions, self.selected_answers,
+                                                                [self.question_bank[q]['Correct'] for q in self.selected_questions]) if selected != correct]
+        }
+        
+        self.upload_quiz_results(quiz_results)
         self.show_score(score)
+
 
     def show_score(self, score):
         score_message = f'Your score: {score} / {len(self.selected_questions)}'
@@ -199,9 +335,16 @@ class QuizApp(QMainWindow):
             elif child.layout():
                 self.clear_layout(child.layout())
 
+'''
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
     mainWindow = QuizApp()
     mainWindow.show()
+    sys.exit(app.exec_())
+'''
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    startup_window = StartupWindow()
+    startup_window.show()
     sys.exit(app.exec_())

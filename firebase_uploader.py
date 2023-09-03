@@ -4,7 +4,7 @@ import os
 import json
 import firebase_admin
 from firebase_admin import credentials, db
-from PySide2.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton, QFileDialog, QTableWidget, QTableWidgetItem, QMessageBox
+from PySide2.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QComboBox, QPushButton, QFileDialog, QTableWidget, QTableWidgetItem, QMessageBox
 from PySide2.QtGui import QColor, QPixmap
 from PySide2.QtCore import Qt, QStandardPaths
 
@@ -45,6 +45,14 @@ class QuestionBankApp(QMainWindow):
 
         
         layout = QVBoxLayout()
+
+        # Dropdown menu for selecting the target bank
+        self.target_bank_dropdown = QComboBox(self)
+        self.target_bank_dropdown.addItem("question_bank")
+        self.target_bank_dropdown.addItem("techart_bank")
+        self.target_bank_dropdown.currentIndexChanged.connect(self.target_bank_changed)
+        layout.addWidget(self.target_bank_dropdown)
+        self.target_bank = self.target_bank_dropdown.currentText()
 
         self.import_button = QPushButton("Import CSV")
         self.import_button.clicked.connect(self.import_csv)
@@ -103,6 +111,13 @@ class QuestionBankApp(QMainWindow):
             self.display_data()
             #self.refresh_status()
 
+    def target_bank_changed(self, index):
+            # Update logic based on selected target bank
+            self.clear_data()
+            self.target_bank = self.target_bank_dropdown.currentText()
+            self.load_question_bank_from_json()
+            self.display_data()
+            #self.refresh_status()
     def initialize_firebase(self):
         cred = credentials.Certificate("credentials.json")
         firebase_admin.initialize_app(cred, {
@@ -133,15 +148,33 @@ class QuestionBankApp(QMainWindow):
         self.save_question_bank_to_json()
 
     def load_question_bank_from_json(self):
+        '''
         json_file_path = os.path.join(QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation), 'shsat_vcb_prefs.json')
         if os.path.exists(json_file_path):
             with open(json_file_path, 'r') as jsonfile:
                 self.question_bank = json.load(jsonfile)
+        '''
+        prefs_file_path = os.path.join(os.path.expanduser('~'), 'Documents', 'shsat_vcb_prefs.json')
+        if os.path.exists(prefs_file_path):
+            with open(prefs_file_path, 'r') as prefs_file:
+                prefs_data = json.load(prefs_file)
+                if self.target_bank in prefs_data:
+                    self.question_bank = prefs_data[self.target_bank]
 
     def save_question_bank_to_json(self):
-        json_file_path = os.path.join(QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation), 'shsat_vcb_prefs.json')
-        with open(json_file_path, 'w') as jsonfile:
-            json.dump(self.question_bank, jsonfile, indent=4)
+    
+        prefs_file_path = os.path.join(os.path.expanduser('~'), 'Documents', 'shsat_vcb_prefs.json')
+        if os.path.exists(prefs_file_path):
+            with open(prefs_file_path, 'r') as prefs_file:
+                prefs_data = json.load(prefs_file)
+        else:
+            prefs_data = {}
+
+        prefs_data[self.target_bank] = self.question_bank
+
+        with open(prefs_file_path, 'w') as prefs_file:
+            json.dump(prefs_data, prefs_file, indent=4)
+
 
     def display_data(self):
         self.grid_widget.setRowCount(0)
@@ -160,19 +193,19 @@ class QuestionBankApp(QMainWindow):
     def clear_data(self):
             self.question_bank.clear()
             self.display_data()
-            self.save_question_bank_to_json()
+            #self.save_question_bank_to_json()
 
 
 
     def upload_to_firebase(self):
-        ref = db.reference('question_bank')
+        ref = db.reference(self.target_bank)
         ref.set(self.question_bank)
         print("Uploaded to Firebase")
 
     def fetch_latest_data(self):
         self.question_bank_headers= ["ID", "Date", "Question", "Answer A", "Answer B", "Answer C", "Answer D", "Correct", "Status"]
         try:
-            fetched_data = self.db.child('question_bank').get()
+            fetched_data = self.db.child(self.target_bank).get()
             if fetched_data:
                 reordered_data = {}
                 for key, values in fetched_data.items():
@@ -208,7 +241,7 @@ class QuestionBankApp(QMainWindow):
         error_box.exec_()
 
     def refresh_status(self):
-        ref = db.reference('question_bank')
+        ref = db.reference(self.target_bank)
         for row_idx in range(self.grid_widget.rowCount()):
             id_item = self.grid_widget.item(row_idx, 0)
             if id_item:
